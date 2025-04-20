@@ -12,7 +12,8 @@ fastify.post('/api/scan', async (request, reply) => {
   
   try {
     // Log the request body
-    console.log('Received scan request with body:', request.body)
+    console.log('****Received scan request with body:', request.body)
+    
     
     // Send a success response
     return { success: true, message: 'Scan request received' }

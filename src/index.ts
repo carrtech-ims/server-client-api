@@ -1,49 +1,39 @@
-import fastify, { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import fastify, { FastifyInstance } from 'fastify';
+import { registerScanRoutes } from './routes/scan';
+import { initDatabase } from './db/clickhouse';
+import * as dotenv from 'dotenv';
 
-// Define interfaces for request body and headers
-interface ScanRequest {
-  [key: string]: unknown;
-}
+// Load environment variables from .env.local file
+dotenv.config({ path: '.env.local' });
 
-interface RequestHeaders {
-  'x-api-key'?: string;
-}
+// Load environment variables
+const PORT = parseInt(process.env.PORT || '3010', 10);
+const HOST = process.env.HOST || '0.0.0.0';
 
 // Create the Fastify instance
-const server: FastifyInstance = fastify({ logger: true });
-
-// Register route for POST /api/scan
-server.post<{
-  Body: ScanRequest;
-  Headers: RequestHeaders;
-}>('/api/scan', async (request: FastifyRequest<{
-  Body: ScanRequest;
-  Headers: RequestHeaders;
-}>, reply: FastifyReply) => {
-  // Check if the API key is present and valid
-  const apiKey = request.headers['x-api-key'];
-  
-  if (!apiKey || apiKey !== 'testkey') {
-    reply.code(401).send({ error: 'Unauthorized: Invalid or missing API key' });
-    return;
-  }
-  
-  try {
-    // Log the request body
-    console.log('Received scan request with body:', request.body);
-    
-    // Send a success response
-    return { success: true, message: 'Scan request received' };
-  } catch (error) {
-    request.log.error(error);
-    reply.code(500).send({ error: 'Internal Server Error' });
+const server: FastifyInstance = fastify({ 
+  logger: true,
+  ajv: {
+    customOptions: {
+      removeAdditional: false, // Don't remove additional properties, we need them for the payload
+      useDefaults: true,
+      coerceTypes: true,
+      allErrors: true,
+    }
   }
 });
+
+// Register routes
+registerScanRoutes(server);
 
 // Start the server
 const start = async (): Promise<void> => {
   try {
-    await server.listen({ port: 3010, host: '0.0.0.0' });
+    // Initialize the database
+    await initDatabase();
+    
+    // Start the server
+    await server.listen({ port: PORT, host: HOST });
     const address = server.server.address();
     const port = typeof address === 'object' ? address?.port : address;
     console.log(`Server listening on ${port}`);
@@ -53,4 +43,18 @@ const start = async (): Promise<void> => {
   }
 };
 
+// Handle termination signals
+process.on('SIGINT', async () => {
+  console.log('Shutting down server...');
+  await server.close();
+  process.exit(0);
+});
+
+process.on('SIGTERM', async () => {
+  console.log('Shutting down server...');
+  await server.close();
+  process.exit(0);
+});
+
+// Start the server
 start();

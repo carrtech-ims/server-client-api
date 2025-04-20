@@ -11,11 +11,15 @@
   },
   "devDependencies": {
     "@types/node": "^20.17.30",
+    "@types/uuid": "^9.0.8",
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",
     "typescript": "^5.8.3"
   },
   "dependencies": {
-    "fastify": "^5.3.2"
+    "@clickhouse/client": "^0.2.10",
+    "dotenv": "^16.4.5",
+    "fastify": "^5.3.2",
+    "uuid": "^9.0.1"
   }
 }
