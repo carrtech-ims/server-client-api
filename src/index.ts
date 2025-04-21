@@ -1,6 +1,5 @@
 import fastify, { FastifyInstance } from 'fastify';
 import { registerScanRoutes } from './routes/scan';
-import { initDatabase } from './db/clickhouse';
 import * as dotenv from 'dotenv';
 import { createBullBoard } from '@bull-board/api';
 import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
@@ -46,9 +45,6 @@ registerScanRoutes(server);
 // Start the server
 const start = async (): Promise<void> => {
   try {
-    // Initialize the database
-    await initDatabase();
-    
     // Start the server
     await server.listen({ port: PORT, host: HOST });
     const address = server.server.address();
