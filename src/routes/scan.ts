@@ -1,6 +1,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { insertScanData, queryScanData, getScanById } from '../db/clickhouse';
-import { v4 as uuidv4 } from 'uuid';
+import { queryScanData, getScanById } from '../db/clickhouse';
+import { scanQueue } from '../queue/scanQueue';
+import { getTenantIdFromApiKey } from '../utils/tenant';
 
 // Define interfaces for request body and headers
 export interface ScanRequest {
@@ -29,34 +30,66 @@ export const registerScanRoutes = (server: FastifyInstance): void => {
       reply.code(401).send({ error: 'Unauthorized: Invalid or missing API key' });
       return;
     }
-    
+
+    // Enqueue the scan request with the full JSON payload
     try {
-      // Log the request body
-      request.log.info('Received scan request with body:', request.body);
+      // Log the incoming request for debugging
+      request.log.info('Received scan request with payload');
       
-      // Extract source from request or use default
-      const source = request.body.source || 'unknown';
+      // Get tenant ID from API key (currently hardcoded to 'test_tenant')
+      const tenantId = getTenantIdFromApiKey(apiKey);
       
-      // Create scan data object with generated ID
-      const scanData = {
-        id: uuidv4(),
+      // Log tenant ID for debugging
+      request.log.info(`Processing request for tenant: ${tenantId}`);
+      
+      // Create the job payload with metadata and the original request
+      // Determine host ID from client IP or source
+      const hostId = request.ip || request.body.source || 'unknown-host';
+      
+      const jobPayload = {
         timestamp: new Date(),
-        source,
-        payload: request.body,
+        source: request.body.source || 'unknown',
+        payload: request.body,  // Include the complete JSON payload
+        // Add tenant_id and host_id at the top level as required by clickhouse-service
+        tenantId: tenantId,
+        hostId: hostId,  // Add host_id for proper data attribution
+        metadata: {
+          receivedAt: new Date().toISOString(),
+          clientIp: request.ip,
+          userAgent: request.headers['user-agent'] || 'unknown',
+          // Also include tenant_id in metadata for consistency
+          tenantId: tenantId
+        }
       };
       
-      // Insert data into ClickHouse
-      await insertScanData(scanData);
+      // Log for debugging
+      request.log.info(`Job payload prepared with tenantId: ${tenantId}, hostId: ${hostId}`);
       
-      // Send a success response with the generated ID
-      return { 
+      // Add job to the queue
+      // Using a generic job name to match what the worker expects
+      const job = await scanQueue.add('client-stats-job', jobPayload, {
+        removeOnComplete: false, // Keep completed jobs in the queue for visibility
+        attempts: 3,              // Retry up to 3 times if processing fails
+        backoff: {                // Exponential backoff for retries
+          type: 'exponential',
+          delay: 5000            // Start with 5 seconds delay
+        }
+      });
+      
+      // Return success with job ID for tracking
+      reply.code(202).send({ 
         success: true, 
-        message: 'Scan data stored successfully', 
-        id: scanData.id 
-      };
+        message: 'Scan request queued successfully',
+        jobId: job.id,
+        queuedAt: new Date().toISOString()
+      });
     } catch (error) {
       request.log.error(error);
-      reply.code(500).send({ error: 'Internal Server Error' });
+      reply.code(500).send({ 
+        success: false, 
+        error: 'Failed to enqueue scan request',
+        message: error instanceof Error ? error.message : 'Unknown error'
+      });
     }
   });
 
